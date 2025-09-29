@@ -1,0 +1,257 @@
+# =======================
+# IMPORTS
+# =======================
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+# =======================
+# FUNÇÕES DE ANÁLISE E VISUALIZAÇÃO
+# =======================
+
+# Função para calcular os módulos e atividades
+def calcula_modulos(data_array):
+    mod_acc = np.sqrt(data_array[:,1]**2 + data_array[:,2]**2 + data_array[:,3]**2)
+    mod_gyro = np.sqrt(data_array[:,4]**2 + data_array[:,5]**2 + data_array[:,6]**2)
+    mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + data_array[:,9]**2)
+    atividades = data_array[:,11]
+    return mod_acc, mod_gyro, mod_mag, atividades
+
+# PONTO 2 - Função para carregar dados de participantes
+def load_participantes(participant_id, base_path=r"C:\Users\migue\Desktop\ECAC\SEMANA 1\FORTH_TRACE_DATASET-master"):
+    """
+    Carrega todos os ficheiros CSV de um participante e devolve um único NumPy array.
+    """
+    data_list = [] # lista para armazenar os dados de cada ficheiro
+    part_folder = os.path.join(base_path, f"part{participant_id}") # caminho para a pasta do participante
+    for device_id in range(1, 6): # dispositivos de 1 a 5
+        filename = os.path.join(part_folder, f"part{participant_id}dev{device_id}.csv") # caminho para o ficheiro CSV
+        data = np.loadtxt(filename, delimiter=",") # carrega os dados do ficheiro
+        data_list.append(data) # adiciona os dados à lista
+    data_array = np.vstack(data_list) # une todos os arrays verticalmente
+    return data_array
+
+# PONTO 3.1 - Função para boxplots dos módulos por atividade
+def plot_modulos_boxplot(data_array):
+    """
+    Calcula os módulos dos vetores e faz boxplots por atividade.
+    """
+    # Recebe os módulos e atividades já calculados
+    mod_acc, mod_gyro, mod_mag, atividades = calcula_modulos(data_array)
+    atividades_unicas = np.unique(atividades)
+
+    boxplot_data_acc = []
+    boxplot_data_gyro = []
+    boxplot_data_mag = []
+
+    for atividade in atividades_unicas:
+        idx = atividades == atividade
+        boxplot_data_acc.append(mod_acc[idx])
+        boxplot_data_gyro.append(mod_gyro[idx])
+        boxplot_data_mag.append(mod_mag[idx])
+
+    plt.figure(figsize=(15,5))
+    atividades_legenda = [int(a) for a in atividades_unicas]
+
+    plt.subplot(1,3,1)
+    plt.boxplot(boxplot_data_acc, labels=atividades_legenda)
+    plt.title('Aceleração')
+    plt.xlabel('Atividade')
+    plt.ylabel('Módulo')
+    plt.subplot(1,3,2)
+
+    plt.boxplot(boxplot_data_gyro, labels=atividades_legenda)
+    plt.title('Giroscópio')
+    plt.xlabel('Atividade')
+    plt.subplot(1,3,3)
+
+    plt.boxplot(boxplot_data_mag, labels=atividades_legenda)
+    plt.title('Magnetómetro')
+    plt.xlabel('Atividade')
+    plt.show()
+
+# PONTO 3.2 - Função para análise da densidade de outliers por atividade (pulso direito)
+def densidade_outliers_por_atividade(data_array):
+    """
+    Analisa e comenta a densidade de outliers nos módulos dos vetores
+    aceleração, giroscópio e magnetómetro para cada atividade, usando só
+    os sensores do pulso direito.
+    """
+    pulso_direito = data_array[data_array[:,0] == 2]
+    mod_acc = np.sqrt(pulso_direito[:,1]**2 + pulso_direito[:,2]**2 + pulso_direito[:,3]**2)
+    mod_gyro = np.sqrt(pulso_direito[:,4]**2 + pulso_direito[:,5]**2 + pulso_direito[:,6]**2)
+    mod_mag = np.sqrt(pulso_direito[:,7]**2 + pulso_direito[:,8]**2 + pulso_direito[:,9]**2)
+
+    atividades = pulso_direito[:,11]
+    atividades_unicas = np.unique(atividades)
+
+    print("\n--- Densidade de outliers por atividade (pulso direito) ---")
+    for atividade in atividades_unicas:
+        idx = atividades == atividade
+        for nome, mod in zip(["Aceleração", "Giroscópio", "Magnetómetro"], [mod_acc, mod_gyro, mod_mag]):
+            dados = mod[idx]
+            q1 = np.percentile(dados, 25)
+            q3 = np.percentile(dados, 75)
+            iqr = q3 - q1
+            lim_inf = q1 - 1.5 * iqr
+            lim_sup = q3 + 1.5 * iqr
+            outliers = (dados < lim_inf) | (dados > lim_sup)
+            n0 = np.sum(outliers)
+            nr = len(dados)
+            densidade = n0 / nr * 100 if nr > 0 else 0
+            atividade_int = int(atividade)
+            print(f"Atividade {atividade_int} - {nome}: densidade de outliers = {densidade:.2f}% ({n0}/{nr})")
+    print("\nComentário: Densidades acima de 5% podem indicar dados extremos ou problemas de medição. Analisa se há atividades/sensores com muitos outliers!")
+
+# PONTO 3.3 - Função para identificar outliers usando Z-Score
+def identifica_outliers_zscore(amostras, k=3):
+    """
+    Recebe um array de amostras e identifica outliers usando o teste Z-Score.
+    Parâmetros:
+        amostras: array (np.array) de valores
+        k: limite do Z-Score (float, padrão=3)
+    Retorna:
+        outliers: array booleano (True se for outlier)
+    """
+    media = np.mean(amostras)
+    std = np.std(amostras)
+    z_scores = (amostras - media) / std
+    outliers = np.abs(z_scores) > k
+    return outliers
+
+# PONTO 3.4 - Função para plotar outliers nos módulos usando Z-score
+def plot_outliers_modulo(modulo, atividades, nome, k):
+    """
+    Faz um scatter plot dos módulos, mostrando outliers (Z-score) a vermelho e normais a azul.
+    modulo: vetor dos módulos
+    atividades: vetor das atividades
+    nome: nome da variável (str)
+    k: valor do Z-score
+    """
+    outliers = identifica_outliers_zscore(modulo, k)
+    plt.scatter(atividades[~outliers], modulo[~outliers], color='blue', s=5, label='Normal')
+    plt.scatter(atividades[outliers], modulo[outliers], color='red', s=5, label='Outlier')
+    plt.title(f'{nome} (k={k})')
+    plt.xlabel('Atividade')
+    plt.ylabel('Módulo')
+    plt.legend()
+
+# PONTO 3.5 - Função para k-means
+def kmeans_clusters(data, n_clusters, max_iter=100, tol=1e-4):
+        """
+        Implementa o algoritmo k-means para n clusters.
+        Parâmetros:
+            data: array 2D (amostras x features)
+            n_clusters: número de clusters
+            max_iter: máximo de iterações
+            tol: tolerância para convergência
+        Retorna:
+            centroids: array dos centróides
+            labels: array dos rótulos de cada ponto
+        """
+        # Inicializa centróides aleatórios
+        rng = np.random.default_rng()
+        indices = rng.choice(data.shape[0], n_clusters, replace=False)
+        centroids = data[indices]
+        for _ in range(max_iter):
+                # Calcula distâncias de cada ponto a cada centróide
+                dists = np.linalg.norm(data[:, None] - centroids[None, :], axis=2)
+                labels = np.argmin(dists, axis=1)
+                new_centroids = np.array([data[labels == k].mean(axis=0) if np.any(labels == k) else centroids[k] for k in range(n_clusters)])
+                # Verifica convergência
+                if np.all(np.linalg.norm(new_centroids - centroids, axis=1) < tol):
+                        break
+                centroids = new_centroids
+        return centroids, labels
+
+# Função para plotar resultados em 3D
+def plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers, titulo):
+    """
+    Plota os dados em 3D, mostrando outliers a vermelho e normais a azul.
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+    fig = plt.figure(figsize=(8,6))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(mod_acc[~outliers], mod_gyro[~outliers], mod_mag[~outliers], c='blue', s=5, label='Normal')
+    ax.scatter(mod_acc[outliers], mod_gyro[outliers], mod_mag[outliers], c='red', s=10, label='Outlier')
+    ax.set_xlabel('Aceleração')
+    ax.set_ylabel('Giroscópio')
+    ax.set_zlabel('Magnetómetro')
+    ax.set_title(titulo)
+    ax.legend()
+    plt.show()
+
+# Função para detetar outliers com k-means
+def outliers_kmeans(mod_acc, mod_gyro, mod_mag, n_clusters=3, frac_outlier=0.05):
+    """
+    Aplica k-means aos módulos e devolve um array booleano de outliers (os mais distantes dos centróides).
+    """
+    # Junta os módulos num array 2D
+    X = np.column_stack([mod_acc, mod_gyro, mod_mag])
+    centroids, labels = kmeans_clusters(X, n_clusters)
+    # Calcula distâncias de cada ponto ao seu centróide
+    dists = np.linalg.norm(X - centroids[labels], axis=1)
+    # Para cada cluster, marca como outlier o frac_outlier mais distante
+    outliers = np.zeros(X.shape[0], dtype=bool)
+    for k in range(n_clusters):
+        idx = np.where(labels == k)[0]
+        if len(idx) == 0:
+            continue
+        dists_cluster = dists[idx]
+        n_out = max(1, int(frac_outlier * len(idx)))
+        out_idx = idx[np.argsort(dists_cluster)[-n_out:]]
+        outliers[out_idx] = True
+    return outliers, labels, centroids
+
+if __name__ == "__main__":
+   
+    
+    # Junta todos os participantes num único array
+    all_data = []
+    for pid in range(0, 15):
+        data_array = load_participantes(pid, base_path=r"C:\Users\migue\Desktop\ECAC\SEMANA 1\FORTH_TRACE_DATASET-master")
+        all_data.append(data_array)
+    all_data = np.vstack(all_data)
+
+    mod_acc = np.sqrt(data_array[:,1]**2 + data_array[:,2]**2 + data_array[:,3]**2)
+    mod_gyro = np.sqrt(data_array[:,4]**2 + data_array[:,5]**2 + data_array[:,6]**2)
+    mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + data_array[:,9]**2)
+    atividades = data_array[:,11]
+
+    # Análise de outliers por atividade (pulso direito)
+    densidade_outliers_por_atividade(all_data)
+
+    # Boxplots dos módulos por atividade
+    plot_modulos_boxplot(all_data)
+
+    # Plots dos outliers nos módulos para diferentes valores de k
+    for k in [3, 3.5, 4]:
+        plt.figure(figsize=(18,5))
+        plt.subplot(1,3,1)
+        plot_outliers_modulo(mod_acc, atividades, 'Aceleração', k)
+        plt.subplot(1,3,2)
+        plot_outliers_modulo(mod_gyro, atividades, 'Giroscópio', k)
+        plt.subplot(1,3,3)
+        plot_outliers_modulo(mod_mag, atividades, 'Magnetómetro', k)
+        plt.tight_layout()
+        plt.show()
+
+    # Exemplo: comparar outliers do Z-score e do k-means em 3D
+    modulo_total = np.sqrt(mod_acc**2 + mod_gyro**2 + mod_mag**2)
+    outliers_zscore = identifica_outliers_zscore(modulo_total, k=3)
+    plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_zscore, 'Outliers pelo Z-score (k=3)')
+
+    for n_clusters in [2, 3, 4, 5]:
+        outliers_km, labels_km, centroids_km = outliers_kmeans(mod_acc, mod_gyro, mod_mag, n_clusters=n_clusters, frac_outlier=0.05)
+        plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_km, f'Outliers pelo k-means (clusters={n_clusters})')
+
+    # Exemplo: comparar outliers do Z-score e do k-means em 3D
+    # Calcula os módulos e atividades uma única vez
+    mod_acc, mod_gyro, mod_mag, atividades = calcula_modulos(all_data)
+
+    # Outliers pelo Z-score (k=3) usando o módulo total
+    modulo_total = np.sqrt(mod_acc**2 + mod_gyro**2 + mod_mag**2)
+    outliers_zscore = identifica_outliers_zscore(modulo_total, k=3)
+    plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_zscore, 'Outliers pelo Z-score (k=3)')
+
+    
+
