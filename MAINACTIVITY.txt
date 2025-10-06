@@ -865,3 +865,5 @@ def run_point_4_6(all_data, fs=50.0, window_sec=2.0, step_sec=0.5,
     _ = run_point_4_6(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=1500, top_k=10, example_index=0)
 
 concluído
+NAO TEM OS GRAFICOS ATIVOS
+FALTA PERCEBER
