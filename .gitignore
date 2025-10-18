@@ -1,10 +1,2 @@
-# Sistema
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Ficheiros temporários
-*.tmp
-*.swp
+.vscode
+exemplo

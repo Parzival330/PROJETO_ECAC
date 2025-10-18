@@ -1,4 +1,3 @@
-
 # IMPORTS
 import numpy as np
 import os
@@ -17,12 +16,12 @@ ENABLE_PLOTS = False
 def calcula_modulos(data_array):
     mod_acc = np.sqrt(data_array[:,1]**2 + data_array[:,2]**2 + data_array[:,3]**2)
     mod_gyro = np.sqrt(data_array[:,4]**2 + data_array[:,5]**2 + data_array[:,6]**2)
-    mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + data_array[:,9]**2)
+    mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + datap_array[:,9]**2)
     atividades = data_array[:,11]
     return mod_acc, mod_gyro, mod_mag, atividades
 
 # 2 - Função para carregar dados de participantes
-def load_participantes(participant_id, base_path=r"FORTH_TRACE_DATASET-master"):
+def load_participantes(participant_id, base_path=r"C:\Users\migue\Desktop\ECAC\SEMANA 1\FORTH_TRACE_DATASET-master"):
     """
     Carrega todos os ficheiros CSV de um participante e devolve um único NumPy array.
     """
