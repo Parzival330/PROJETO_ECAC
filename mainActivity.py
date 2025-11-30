@@ -1,46 +1,51 @@
-
 # IMPORTS
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 from scipy import stats
-from scipy.signal import welch
 import time
 
 # Controlar se os gráficos devem abrir janelas
 ENABLE_PLOTS = False
 
 # =======================
-# FUNÇÕES DE ANÁLISE E VISUALIZAÇÃO
+# FUNÇÕES DE ANÁLISE E VISUALIZAÇÃO BASE
 
-# Função para calcular os módulos e atividades
 def calcula_modulos(data_array):
+    """Calcula os módulos dos vetores de aceleração, giroscópio e magnetómetro."""
     mod_acc = np.sqrt(data_array[:,1]**2 + data_array[:,2]**2 + data_array[:,3]**2)
     mod_gyro = np.sqrt(data_array[:,4]**2 + data_array[:,5]**2 + data_array[:,6]**2)
     mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + data_array[:,9]**2)
     atividades = data_array[:,11]
     return mod_acc, mod_gyro, mod_mag, atividades
 
-# 2 - Função para carregar dados de participantes
 def load_participantes(participant_id, base_path=r"FORTH_TRACE_DATASET-master"):
     """
-    Carrega todos os ficheiros CSV de um participante e devolve um único NumPy array.
+    Assunto 0.2: Carrega todos os ficheiros CSV de um participante e devolve um único NumPy array.
     """
-    data_list = [] # lista para armazenar os dados de cada ficheiro
-    part_folder = os.path.join(base_path, f"part{participant_id}") # caminho para a pasta do participante
-    for device_id in range(1, 6): # dispositivos de 1 a 5
-        filename = os.path.join(part_folder, f"part{participant_id}dev{device_id}.csv") # caminho para o ficheiro CSV
-        data = np.loadtxt(filename, delimiter=",") # carrega os dados do ficheiro
-        data_list.append(data) # adiciona os dados à lista
-    data_array = np.vstack(data_list) # une todos os arrays verticalmente
+    data_list = [] 
+    part_folder = os.path.join(base_path, f"part{participant_id}") 
+    for device_id in range(1, 6): 
+        filename = os.path.join(part_folder, f"part{participant_id}dev{device_id}.csv")
+        # Verifica se ficheiro existe antes de carregar
+        if os.path.exists(filename):
+            data = np.loadtxt(filename, delimiter=",")
+            data_list.append(data)
+    
+    if not data_list:
+        return np.empty((0, 12)) # Retorna vazio se não encontrar nada
+
+    data_array = np.vstack(data_list)
     return data_array
 
-# 3.1 - Função para boxplots dos módulos por atividade
+# =======================
+# ASSUNTO 1: ANÁLISE E TRATAMENTO DE OUTLIERS
+
+# 3.1 - Boxplots
 def plot_modulos_boxplot(data_array):
     """
-    Calcula os módulos dos vetores e faz boxplots por atividade.
+    Assunto 1.1: Calcula os módulos dos vetores e faz boxplots por atividade.
     """
-    # Recebe os módulos e atividades já calculados
     mod_acc, mod_gyro, mod_mag, atividades = calcula_modulos(data_array)
     atividades_unicas = np.unique(atividades)
 
@@ -55,48 +60,57 @@ def plot_modulos_boxplot(data_array):
         boxplot_data_mag.append(mod_mag[idx])
 
     plt.figure(figsize=(15,5))
-    atividades_legenda = [int(a) for a in atividades_unicas]
+    atividades_legenda = [str(int(a)) for a in atividades_unicas]
 
     plt.subplot(1,3,1)
-    plt.boxplot(boxplot_data_acc, labels=atividades_legenda)
+    # CORREÇÃO: tick_labels em vez de labels (para corrigir o warning)
+    plt.boxplot(boxplot_data_acc, tick_labels=atividades_legenda)
     plt.title('Aceleração')
     plt.xlabel('Atividade')
     plt.ylabel('Módulo')
+    
     plt.subplot(1,3,2)
-
-    plt.boxplot(boxplot_data_gyro, labels=atividades_legenda)
+    plt.boxplot(boxplot_data_gyro, tick_labels=atividades_legenda)
     plt.title('Giroscópio')
     plt.xlabel('Atividade')
+    
     plt.subplot(1,3,3)
-
-    plt.boxplot(boxplot_data_mag, labels=atividades_legenda)
+    plt.boxplot(boxplot_data_mag, tick_labels=atividades_legenda)
     plt.title('Magnetómetro')
     plt.xlabel('Atividade')
+    
+    plt.tight_layout()
     if ENABLE_PLOTS:
         plt.show()
     else:
+        plt.savefig('boxplot_modulos.png')
         plt.close(plt.gcf())
 
-# 3.2 - Função para análise da densidade de outliers por atividade (pulso direito)
+# 3.2 - Densidade Outliers (Pulso Direito)
 def densidade_outliers_por_atividade(data_array):
     """
-    Analisa e comenta a densidade de outliers nos módulos dos vetores
-    aceleração, giroscópio e magnetómetro para cada atividade, usando só
-    os sensores do pulso direito.
+    Assunto 1.2: Analisa a densidade de outliers (IQR) no pulso direito.
     """
-    pulso_direito = data_array[data_array[:,0] == 2]
+    # Filtra apenas sensor pulso direito (ID=2 na coluna 0)
+    pulso_direito = data_array[data_array[:,0] == 2] 
+    if pulso_direito.size == 0:
+        return {'acc': {}, 'gyro': {}, 'mag': {}}
+
     mod_acc = np.sqrt(pulso_direito[:,1]**2 + pulso_direito[:,2]**2 + pulso_direito[:,3]**2)
     mod_gyro = np.sqrt(pulso_direito[:,4]**2 + pulso_direito[:,5]**2 + pulso_direito[:,6]**2)
     mod_mag = np.sqrt(pulso_direito[:,7]**2 + pulso_direito[:,8]**2 + pulso_direito[:,9]**2)
 
     atividades = pulso_direito[:,11]
     atividades_unicas = np.unique(atividades)
+    densidades = {'acc': {}, 'gyro': {}, 'mag': {}}
 
     print("\n--- Densidade de outliers por atividade (pulso direito) ---")
     for atividade in atividades_unicas:
         idx = atividades == atividade
-        for nome, mod in zip(["Aceleração", "Giroscópio", "Magnetómetro"], [mod_acc, mod_gyro, mod_mag]):
+        for nome, chave, mod in zip(["Aceleração", "Giroscópio", "Magnetómetro"], ["acc", "gyro", "mag"], [mod_acc, mod_gyro, mod_mag]):
             dados = mod[idx]
+            if len(dados) == 0: continue
+            
             q1 = np.percentile(dados, 25)
             q3 = np.percentile(dados, 75)
             iqr = q3 - q1
@@ -107,227 +121,209 @@ def densidade_outliers_por_atividade(data_array):
             nr = len(dados)
             densidade = n0 / nr * 100 if nr > 0 else 0
             atividade_int = int(atividade)
-            print(f"Atividade {atividade_int} - {nome}: densidade de outliers = {densidade:.2f}% ({n0}/{nr})")
-    print("\nComentário: Densidades acima de 5% podem indicar dados extremos ou problemas de medição. Analisa se há atividades/sensores com muitos outliers!")
+            print(f"Atividade {atividade_int} - {nome}: densidade = {densidade:.2f}% ({n0}/{nr})")
+            densidades[chave][atividade_int] = densidade
+    
+    return densidades
 
-# 3.3 - Função para identificar outliers usando Z-Score
+# Gráfico de Barras da Densidade de Outliers
+def plot_densidade_outliers(densidades):
+    if not densidades['acc']: return
+
+    atividades = sorted(densidades['acc'].keys())
+    acc_dens = [densidades['acc'][a] for a in atividades]
+    gyro_dens = [densidades['gyro'][a] for a in atividades]
+    mag_dens = [densidades['mag'][a] for a in atividades]
+
+    x = np.arange(len(atividades)) 
+    width = 0.25 
+
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.bar(x - width, acc_dens, width, label='Aceleração', color='blue')
+    ax.bar(x, gyro_dens, width, label='Giroscópio', color='orange')
+    ax.bar(x + width, mag_dens, width, label='Magnetómetro', color='green')
+
+    ax.set_ylabel('Densidade de Outliers (%)')
+    ax.set_xlabel('Atividade')
+    ax.set_title('Densidade de Outliers (IQR) por Atividade no Pulso Direito')
+    ax.set_xticks(x)
+    ax.set_xticklabels(atividades)
+    ax.legend()
+    ax.grid(axis='y', linestyle='--')
+    plt.tight_layout()
+    if not ENABLE_PLOTS:
+        plt.savefig('densidade_outliers_barras.png')
+        plt.close(fig)
+
+# 3.3 - Identificar outliers Z-Score
 def identifica_outliers_zscore(amostras, k=3):
-    """
-    Recebe um array de amostras e identifica outliers usando o teste Z-Score.
-    Parâmetros:
-        amostras: array (np.array) de valores
-        k: limite do Z-Score (float, padrão=3)
-    Retorna:
-        outliers: array booleano (True se for outlier)
-    """
     media = np.mean(amostras)
     std = np.std(amostras)
+    if std == 0: return np.zeros(len(amostras), dtype=bool)
     z_scores = (amostras - media) / std
     outliers = np.abs(z_scores) > k
     return outliers
 
-# 3.4 - Função para plotar outliers nos módulos usando Z-score
-def plot_outliers_modulo(modulo, atividades, nome, k):
-    """
-    Faz um scatter plot dos módulos, mostrando outliers (Z-score) a vermelho e normais a azul.
-    modulo: vetor dos módulos
-    atividades: vetor das atividades
-    nome: nome da variável (str)
-    k: valor do Z-score
-    """
+# 3.4 - Plot outliers Z-score
+def plot_outliers_modulo(modulo, atividades, nome, k, filename):
     outliers = identifica_outliers_zscore(modulo, k)
+    plt.figure(figsize=(10, 6))
     plt.scatter(atividades[~outliers], modulo[~outliers], color='blue', s=5, label='Normal')
     plt.scatter(atividades[outliers], modulo[outliers], color='red', s=5, label='Outlier')
-    plt.title(f'{nome} (k={k})')
+    plt.title(f'{nome} - Deteção de Outliers (Z-Score k={k})')
     plt.xlabel('Atividade')
     plt.ylabel('Módulo')
     plt.legend()
+    plt.tight_layout()
+    if not ENABLE_PLOTS:
+        plt.savefig(filename)
+        plt.close()
 
-# 3.5 - Função para k-means
+# 3.5 - Histograma Comparativo de Limites
+def plot_limites_outliers_comparativo(modulo, atividade_label, nome_sensor, atividade_id=4):
+    idx = atividade_label == atividade_id
+    dados = modulo[idx]
+    if len(dados) < 10: return
+
+    # 1. Limites IQR
+    q1 = np.percentile(dados, 25)
+    q3 = np.percentile(dados, 75)
+    iqr = q3 - q1
+    lim_iqr_sup = q3 + 1.5 * iqr
+    lim_iqr_inf = q1 - 1.5 * iqr
+
+    # 2. Limites Z-Score
+    media = np.mean(dados)
+    std = np.std(dados)
+    lim_z_sup_3 = media + 3 * std
+    lim_z_sup_4 = media + 4 * std
+    lim_z_inf_3 = media - 3 * std
+    lim_z_inf_4 = media - 4 * std
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(dados, bins=50, density=True, alpha=0.6, color='gray', label='Distribuição dos Dados')
+    
+    ax.axvline(lim_iqr_sup, color='green', linestyle='-', linewidth=2, label='IQR Superior (+1.5 IQR)')
+    ax.axvline(lim_z_sup_3, color='red', linestyle='--', linewidth=1.5, label='Z-Score Superior (k=3)')
+    ax.axvline(lim_z_sup_4, color='orange', linestyle=':', linewidth=1.5, label='Z-Score Superior (k=4)')
+    ax.axvline(lim_iqr_inf, color='green', linestyle='-', linewidth=2)
+    ax.axvline(lim_z_inf_3, color='red', linestyle='--', linewidth=1.5)
+    ax.axvline(lim_z_inf_4, color='orange', linestyle=':', linewidth=1.5)
+
+    ax.set_title(f'Comparação de Limites (IQR vs Z-Score) - Ativ. {atividade_id} - {nome_sensor}')
+    ax.set_xlabel(f'Módulo {nome_sensor}')
+    ax.set_ylabel('Densidade')
+    ax.legend()
+    plt.tight_layout()
+    if not ENABLE_PLOTS:
+        plt.savefig(f'comparativo_limites_outliers_act{atividade_id}_{nome_sensor}.png')
+        plt.close(fig)
+
+# 3.6 - K-Means
 def kmeans_clusters(data, n_clusters, max_iter=100, tol=1e-4):
-        """
-        Implementa o algoritmo k-means para n clusters.
-        Parâmetros:
-            data: array 2D (amostras x features)
-            n_clusters: número de clusters
-            max_iter: máximo de iterações
-            tol: tolerância para convergência
-        Retorna:
-            centroids: array dos centróides
-            labels: array dos rótulos de cada ponto
-        """
-        # Inicializa centróides aleatórios
-        rng = np.random.default_rng()
-        indices = rng.choice(data.shape[0], n_clusters, replace=False)
-        centroids = data[indices]
-        for _ in range(max_iter):
-                # Calcula distâncias de cada ponto a cada centróide
-                dists = np.linalg.norm(data[:, None] - centroids[None, :], axis=2)
-                labels = np.argmin(dists, axis=1)
-                new_centroids = np.array([data[labels == k].mean(axis=0) if np.any(labels == k) else centroids[k] for k in range(n_clusters)])
-                # Verifica convergência
-                if np.all(np.linalg.norm(new_centroids - centroids, axis=1) < tol):
-                        break
-                centroids = new_centroids
-        return centroids, labels
+    rng = np.random.default_rng()
+    # Segurança para caso haja menos dados que clusters
+    if data.shape[0] < n_clusters:
+        return data, np.zeros(data.shape[0])
+        
+    indices = rng.choice(data.shape[0], n_clusters, replace=False)
+    centroids = data[indices]
+    labels = np.zeros(data.shape[0])
+    
+    for _ in range(max_iter):
+        dists = np.linalg.norm(data[:, None] - centroids[None, :], axis=2)
+        labels = np.argmin(dists, axis=1)
+        new_centroids = np.array([data[labels == k].mean(axis=0) if np.any(labels == k) else centroids[k] for k in range(n_clusters)])
+        if np.all(np.linalg.norm(new_centroids - centroids, axis=1) < tol):
+            break
+        centroids = new_centroids
+    return centroids, labels
 
-# Função para plotar resultados em 3D
-def plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers, titulo):
-    """
-    Plota os dados em 3D, mostrando outliers a vermelho e normais a azul.
-    """
+# 3.7 - 3D Plot
+def plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers, titulo, filename):
     from mpl_toolkits.mplot3d import Axes3D
     fig = plt.figure(figsize=(8,6))
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(mod_acc[~outliers], mod_gyro[~outliers], mod_mag[~outliers], c='blue', s=5, label='Normal')
-    ax.scatter(mod_acc[outliers], mod_gyro[outliers], mod_mag[outliers], c='red', s=10, label='Outlier')
-    ax.set_xlabel('Aceleração')
-    ax.set_ylabel('Giroscópio')
-    ax.set_zlabel('Magnetómetro')
+    # Plotar com downsampling para não ficar muito pesado se houver muitos pontos
+    step = 10 if len(mod_acc) > 50000 else 1
+    
+    ax.scatter(mod_acc[~outliers][::step], mod_gyro[~outliers][::step], mod_mag[~outliers][::step], c='blue', s=2, label='Normal')
+    ax.scatter(mod_acc[outliers][::step], mod_gyro[outliers][::step], mod_mag[outliers][::step], c='red', s=5, label='Outlier')
+    
+    ax.set_xlabel('Módulo Acc')
+    ax.set_ylabel('Módulo Gyro')
+    ax.set_zlabel('Módulo Mag')
     ax.set_title(titulo)
     ax.legend()
-    if ENABLE_PLOTS:
-        plt.show()
-    else:
+    if not ENABLE_PLOTS:
+        plt.savefig(filename)
         plt.close(fig)
 
-# Função para detetar outliers com k-means
 def outliers_kmeans(mod_acc, mod_gyro, mod_mag, n_clusters=3, frac_outlier=0.05):
-    """
-    Aplica k-means aos módulos e devolve um array booleano de outliers (os mais distantes dos centróides).
-    """
-    # Junta os módulos num array 2D
     X = np.column_stack([mod_acc, mod_gyro, mod_mag])
     centroids, labels = kmeans_clusters(X, n_clusters)
-    # Calcula distâncias de cada ponto ao seu centróide
     dists = np.linalg.norm(X - centroids[labels], axis=1)
-    # Para cada cluster, marca como outlier o frac_outlier mais distante
     outliers = np.zeros(X.shape[0], dtype=bool)
     for k in range(n_clusters):
         idx = np.where(labels == k)[0]
-        if len(idx) == 0:
-            continue
+        if len(idx) == 0: continue
         dists_cluster = dists[idx]
         n_out = max(1, int(frac_outlier * len(idx)))
         out_idx = idx[np.argsort(dists_cluster)[-n_out:]]
         outliers[out_idx] = True
-    return outliers, labels, centroids
+    return outliers
+
+# =======================
+# ASSUNTO 2: ESTATÍSTICA E FEATURES
 
 def normality_per_activity(modulo, atividades):
-    """
-    Para cada atividade, aplica o teste de Kolmogorov–Smirnov a uma normal
-    ajustada (com média e desvio-padrão da própria amostra).
-    Retorna: dicionário atividade -> (estatística, p-valor).
-    """
-    results = {} # dicionário para armazenar os resultados
-    atividades_unicas = np.unique(atividades) # obtém as atividades únicas
+    results = {}
+    atividades_unicas = np.unique(atividades)
     for atividade in atividades_unicas:
         idx = atividades == atividade
-        sample = modulo[idx] # obtém a amostra para a atividade
+        sample = modulo[idx]
         if sample.size < 5 or np.std(sample) == 0:
             results[int(atividade)] = (np.nan, np.nan)
             continue
-        mu = np.mean(sample) # obtém a média da amostra
+        # KS Test vs Normal (após standardização)
+        mu = np.mean(sample)
         sigma = np.std(sample, ddof=1)
-        # Estandardiza a amostra e testa contra N(0,1)
         z = (sample - mu) / sigma
-        stat, p = stats.kstest(z, 'norm') # aplica o teste de Kolmogorov–Smirnov
+        stat, p = stats.kstest(z, 'norm')
         results[int(atividade)] = (stat, p)
     return results
 
-
 def compare_means_across_activities(modulo, atividades):
-    """
-    Compara as médias entre atividades:
-    - Se todas as atividades passarem normalidade (KS p>=0.05): ANOVA one-way
-    - Caso contrário: Kruskal–Wallis (não paramétrico)
-    Retorna: (método, estatística, p-valor)
-    """
     atividades_unicas = np.unique(atividades)
-    groups = [] # lista para armazenar as amostras de cada atividade
-    normal_flags = []
-    for atividade in atividades_unicas:
-        idx = atividades == atividade
-        g = modulo[idx] # obtém a amostra para a atividade
-        if g.size >= 3:
-            groups.append(g)
-            mu = np.mean(g) # obtém a média da amostra
-            sigma = np.std(g, ddof=1)
-            if sigma == 0:
-                normal_flags.append(False)
-            else:
-                z = (g - mu) / sigma # estandardiza a amostra   
-                _, p = stats.kstest(z, 'norm') # aplica o teste de Kolmogorov–Smirnov
-                normal_flags.append(p >= 0.05)
-        else:
-            groups.append(g)
-            normal_flags.append(False)
-    use_anova = all(normal_flags) and len(groups) >= 2 # verifica se todas as atividades passaram normalidade e se há pelo menos 2 atividades
-    if use_anova:
-        stat, p = stats.f_oneway(*groups) # aplica o teste ANOVA one-way
-        return 'anova', stat, p
-    else:
-        stat, p = stats.kruskal(*groups) # aplica o teste Kruskal–Wallis
-        return 'kruskal', stat, p
+    groups = [modulo[atividades == a] for a in atividades_unicas if len(modulo[atividades == a]) >= 3]
+    
+    if len(groups) < 2:
+        return 'N/A', np.nan, np.nan
 
+    # Usar Kruskal-Wallis (pois os dados não são normais)
+    stat, p = stats.kruskal(*groups)
+    return 'Kruskal-Wallis', stat, p
 
 def run_point_4_1(all_data):
-    """
-    Executa a análise 4.1: normalidade por atividade e significância das
-    diferenças das médias para as variáveis da 3.1 (mod_acc, mod_gyro, mod_mag).
-    """
     mod_acc, mod_gyro, mod_mag, atividades = calcula_modulos(all_data)
-    for name, modulo in [('Aceleração', mod_acc), ('Giroscópio', mod_gyro), ('Magnetómetro', mod_mag)]: # itera sobre as variáveis
+    for name, modulo in [('Aceleração', mod_acc), ('Giroscópio', mod_gyro), ('Magnetómetro', mod_mag)]:
         print(f"\n=== 4.1 {name} ===")
         norm_results = normality_per_activity(modulo, atividades)
         print("Normalidade por atividade (KS p>=0.05 ~ normal):")
-        for atividade, (stat, p) in sorted(norm_results.items()): # itera sobre as atividades
+        for atividade, (stat, p) in sorted(norm_results.items()):
             status = 'normal' if p is not None and p >= 0.05 else 'não normal'
             print(f"Atividade {atividade}: KS stat={stat:.3f} p={p:.3g} => {status}")
-        method, stat, p = compare_means_across_activities(modulo, atividades) # compara as médias entre atividades
+        method, stat, p = compare_means_across_activities(modulo, atividades)
         print(f"Teste de médias ({method}): stat={stat:.3f}, p={p:.3g}")
-        if p < 0.05:
-            print("Conclusão: diferenças significativas entre atividades (p<0.05).")
-        else:
-            print("Conclusão: não há evidência de diferenças significativas (p>=0.05).")
 
+# --- FEATURES ---
 def window_indices(n_samples, window_size, step):
-    """
-    Gera índices (start, end) para janelas deslizantes sobre n_samples.
-    """
     start = 0
     while start + window_size <= n_samples:
         yield start, start + window_size
         start += step
 
-
-def zero_crossing_rate(x):
-    """
-    Taxa de cruzamentos por zero (proporção de mudanças de sinal).
-    """
-    x = np.asarray(x)
-    s = np.sign(x)
-    zc = np.sum(np.abs(np.diff(s)) > 0)
-    return zc / max(1, (len(x) - 1))
-
-
-def mean_crossing_rate(x):
-    """
-    Taxa de cruzamentos pela média (proporção de trocas de sinal em x - mean(x)).
-    """
-    x = np.asarray(x)
-    m = np.mean(x)
-    s = np.sign(x - m)
-    mc = np.sum(np.abs(np.diff(s)) > 0)
-    return mc / max(1, (len(x) - 1))
-
-
 def temporal_features_axis(x):
-    """
-    Extrai features temporais de um vetor 1D x.
-    Retorna dict com métricas: mean, std, median, min, max, rms, iqr,
-    skewness, kurtosis, zcr, mcr.
-    """
     x = np.asarray(x)
     feats = {}
     feats['mean'] = float(np.mean(x))
@@ -338,95 +334,36 @@ def temporal_features_axis(x):
     feats['rms'] = float(np.sqrt(np.mean(x * x)))
     q1, q3 = np.percentile(x, [25, 75])
     feats['iqr'] = float(q3 - q1)
-    if len(x) >= 3 and feats['std'] > 0:
-        feats['skewness'] = float(stats.skew(x, bias=False))
-        feats['kurtosis'] = float(stats.kurtosis(x, bias=False))
-    else:
-        feats['skewness'] = 0.0
-        feats['kurtosis'] = 0.0
-    feats['zcr'] = float(zero_crossing_rate(x))
-    feats['mcr'] = float(mean_crossing_rate(x))
+    
+    # Zero Crossing Rate simplificado
+    zc = np.sum(np.abs(np.diff(np.sign(x))) > 0)
+    feats['zcr'] = zc / max(1, (len(x) - 1))
+    
+    # Mean Crossing Rate
+    mc = np.sum(np.abs(np.diff(np.sign(x - feats['mean']))) > 0)
+    feats['mcr'] = mc / max(1, (len(x) - 1))
     return feats
 
-
-def spectral_features_axis(x, fs, w=None, freqs=None):
-    """
-    Extrai features espectrais usando FFT/PSD: energia, entropia espectral,
-    frequência dominante, amplitude dominante, centroide, largura (spread),
-    flatness e rolloff (95%).
-    """
+def spectral_features_axis(x, fs):
     x = np.asarray(x)
-    # Janela Hanning para reduzir leakage (reutilizável)
-    if w is None:
-        w = np.hanning(len(x))
-    xw = x * w
-    # FFT unilateral (reutiliza grelha de frequências se fornecida)
-    X = np.fft.rfft(xw)
-    if freqs is None:
-        freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
-    psd = (np.abs(X) ** 2) / len(xw)
+    X = np.fft.rfft(x * np.hanning(len(x)))
+    psd = (np.abs(X) ** 2) / len(x)
     psd_sum = np.sum(psd) + 1e-12
+    freqs = np.fft.rfftfreq(len(x), d=1.0 / fs)
 
     energy = float(psd_sum)
     p = psd / psd_sum
     spectral_entropy = float(-(p * (np.log(p + 1e-12))).sum())
-
     k_max = int(np.argmax(psd))
-    peak_freq = float(freqs[k_max])
     peak_amp = float(psd[k_max])
-
-    centroid = float(np.sum(freqs * psd) / psd_sum)
-    spread = float(np.sqrt(np.sum(((freqs - centroid) ** 2) * psd) / psd_sum))
-
-    geo_mean = float(np.exp(np.mean(np.log(psd + 1e-12))))
-    arith_mean = float(np.mean(psd)) + 1e-12
-    flatness = float(geo_mean / arith_mean)
-
-    # Rolloff 95%
-    cumsum = np.cumsum(psd)
-    thresh = 0.95 * psd_sum
-    k_roll = int(np.searchsorted(cumsum, thresh))
-    rolloff = float(freqs[min(k_roll, len(freqs) - 1)])
 
     return {
         'spec_energy': energy,
         'spec_entropy': spectral_entropy,
-        'spec_peak_freq': peak_freq,
         'spec_peak_amp': peak_amp,
-        'spec_centroid': centroid,
-        'spec_spread': spread,
-        'spec_flatness': flatness,
-        'spec_rolloff': rolloff,
     }
 
-
-def sma_three_axes(x, y, z):
-    """
-    Signal Magnitude Area (SMA) para três eixos.
-    """
-    return float((np.sum(np.abs(x)) + np.sum(np.abs(y)) + np.sum(np.abs(z))) / len(x))
-
-
-def corr_xy(x, y):
-    """
-    Correlação de Pearson entre dois vetores; 0.0 se desvio-padrão nulo.
-    """
-    x = np.asarray(x)
-    y = np.asarray(y)
-    sx = np.std(x, ddof=1) if len(x) > 1 else 0.0
-    sy = np.std(y, ddof=1) if len(y) > 1 else 0.0
-    if sx == 0.0 or sy == 0.0:
-        return 0.0
-    return float(np.corrcoef(x, y)[0, 1])
-
-
 def features_window(data_window, fs):
-    """
-    Extrai features temporais e espectrais por janela para acc, gyro e mag.
-    data_window: array (N x 12) no formato do dataset (colunas 1..9 são eixos).
-    Retorna (feature_vector, feature_names).
-    """
-    # Extrai eixos
     ax, ay, az = data_window[:,1], data_window[:,2], data_window[:,3]
     gx, gy, gz = data_window[:,4], data_window[:,5], data_window[:,6]
     mx, my, mz = data_window[:,7], data_window[:,8], data_window[:,9]
@@ -434,13 +371,9 @@ def features_window(data_window, fs):
     feats = []
     names = []
 
-    # Pré-calcula janela e grelha de frequências para esta janela temporal
-    win_vec = np.hanning(len(ax))
-    freq_vec = np.fft.rfftfreq(len(ax), d=1.0 / fs)
-
     def add_axis_feats(prefix, x):
         t = temporal_features_axis(x)
-        s = spectral_features_axis(x, fs, w=win_vec, freqs=freq_vec)
+        s = spectral_features_axis(x, fs)
         for k, v in t.items():
             feats.append(v)
             names.append(f"{prefix}_{k}")
@@ -448,7 +381,6 @@ def features_window(data_window, fs):
             feats.append(v)
             names.append(f"{prefix}_{k}")
 
-    # Por eixo
     add_axis_feats('acc_x', ax)
     add_axis_feats('acc_y', ay)
     add_axis_feats('acc_z', az)
@@ -458,161 +390,23 @@ def features_window(data_window, fs):
     add_axis_feats('mag_x', mx)
     add_axis_feats('mag_y', my)
     add_axis_feats('mag_z', mz)
-
-    # Agregados 3-eixos
-    feats.append(sma_three_axes(ax, ay, az)); names.append('acc_sma')
-    feats.append(sma_three_axes(gx, gy, gz)); names.append('gyro_sma')
-    feats.append(sma_three_axes(mx, my, mz)); names.append('mag_sma')
-
-    feats.append(corr_xy(ax, ay)); names.append('acc_corr_xy')
-    feats.append(corr_xy(ax, az)); names.append('acc_corr_xz')
-    feats.append(corr_xy(ay, az)); names.append('acc_corr_yz')
-
-    feats.append(corr_xy(gx, gy)); names.append('gyro_corr_xy')
-    feats.append(corr_xy(gx, gz)); names.append('gyro_corr_xz')
-    feats.append(corr_xy(gy, gz)); names.append('gyro_corr_yz')
-
-    feats.append(corr_xy(mx, my)); names.append('mag_corr_xy')
-    feats.append(corr_xy(mx, mz)); names.append('mag_corr_xz')
-    feats.append(corr_xy(my, mz)); names.append('mag_corr_yz')
+    
+    # SMA
+    sma_a = float((np.sum(np.abs(ax)) + np.sum(np.abs(ay)) + np.sum(np.abs(az))) / len(ax))
+    feats.append(sma_a); names.append('acc_sma')
+    
+    sma_g = float((np.sum(np.abs(gx)) + np.sum(np.abs(gy)) + np.sum(np.abs(gz))) / len(gx))
+    feats.append(sma_g); names.append('gyro_sma')
 
     return np.array(feats, dtype=float), names
 
-
-def extract_features_over_time(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=None, progress_every=1000):
-    """
-    Extrai vetores de features em janelas deslizantes sobre all_data.
-    Retorna (F, names), onde F tem forma [num_janelas, num_features].
-    """
-    n = all_data.shape[0]
-    win = int(round(window_sec * fs))
-    step = int(round(step_sec * fs))
-    feature_list = []
-    names = None
-    num_windows = 0
-    for i0, i1 in window_indices(n, win, step):
-        fvec, fnames = features_window(all_data[i0:i1, :], fs)
-        feature_list.append(fvec)
-        num_windows += 1
-        if names is None:
-            names = fnames
-        if progress_every and (num_windows % progress_every == 0):
-            print(f"[4.3] Progresso: {num_windows} janelas processadas...")
-        if max_windows is not None and num_windows >= max_windows:
-            print(f"[4.3] Limite de janelas atingido ({max_windows}). A parar extração.")
-            break
-    if not feature_list:
-        return np.empty((0, 0)), []
-    return np.vstack(feature_list), names
-
-def standardize_features(F):
-    """
-    Estandardiza features para média 0 e desvio-padrão 1 por coluna.
-    Retorna Fz, mean, std.
-    """
-    mean = np.mean(F, axis=0)
-    std = np.std(F, axis=0, ddof=1)
-    std_safe = np.where(std == 0, 1.0, std)
-    Fz = (F - mean) / std_safe
-    return Fz, mean, std_safe
-
-
-def pca_fit(Fz):
-    """
-    Ajusta PCA a dados estandardizados Fz (N x D).
-    - Se N >= D: usa autovalores da matriz de covariância (D x D) -> mais eficiente.
-    - Caso contrário: usa SVD direto.
-    Retorna: components (D x D), singulares (ou sqrt(var*(N-1))), var_ratio.
-    """
-    N, D = Fz.shape
-    if N >= D:
-        # Covariância D x D
-        C = (Fz.T @ Fz) / max(1, (N - 1))
-        # eigh para simétrica; retorna autovalores/vetores não ordenados
-        evals, evecs = np.linalg.eigh(C)
-        # Ordena por variância descrescente
-        order = np.argsort(evals)[::-1]
-        evals = evals[order]
-        evecs = evecs[:, order]
-        components = evecs.T  # filas são componentes principais (D x D)
-        explained_var = evals
-        var_ratio = explained_var / np.sum(explained_var)
-        S = np.sqrt(explained_var * max(1, (N - 1)))
-        return components, S, var_ratio
-    else:
-        # SVD: Fz = U S V^T
-        U, S, Vt = np.linalg.svd(Fz, full_matrices=False)
-        components = Vt  # (D, D)
-        explained_var = (S ** 2) / max(1, (N - 1))
-        var_ratio = explained_var / np.sum(explained_var)
-        return components, S, var_ratio
-
-
-def pca_transform(Fz, components, n_components):
-    """
-    Projeta Fz nas primeiras n_components componentes.
-    Retorna F_proj (N x n_components).
-    """
-    W = components[:n_components, :]
-    return Fz @ W.T
-
-
-def run_point_4_3(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, n_components=10, max_windows=None):
-    """
-    Extrai features por janelas e aplica PCA (SVD) com estandardização.
-    Mostra variância explicada acumulada e retorna (F_proj, names, var_ratio).
-    """
-    print(f"[4.3] A extrair features: fs={fs}, janela={window_sec}s, passo={step_sec}s ...")
-    F, names = extract_features_over_time(
-        all_data,
-        fs=fs,
-        window_sec=window_sec,
-        step_sec=step_sec,
-        max_windows=max_windows,
-        progress_every=200,
-    )
-    if F.size == 0:
-        print("[4.3] Sem janelas suficientes para extrair features. Ajuste window_sec/step_sec ou confirme o tamanho dos dados.")
-        return np.empty((0, 0)), names, np.array([])
-    print(f"[4.3] Features extraídas: {F.shape[0]} janelas x {F.shape[1]} features")
-    if max_windows is not None and F.shape[0] > max_windows:
-        print(f"[4.3] A limitar janelas para {max_windows} para acelerar o PCA...")
-        F = F[:max_windows, :]
-    t0 = time.time()
-    Fz, mean, std = standardize_features(F)
-    t1 = time.time()
-    print(f"[4.3] Estandardização concluída em {(t1 - t0):.3f}s")
-    components, S, var_ratio = pca_fit(Fz)
-    t2 = time.time()
-    print(f"[4.3] PCA fit concluído em {(t2 - t1):.3f}s")
-    k = min(n_components, F.shape[1])
-    F_proj = pca_transform(Fz, components, k)
-    t3 = time.time()
-    print(f"[4.3] Transform concluído em {(t3 - t2):.3f}s")
-    cum = np.cumsum(var_ratio)
-    k_show = min(20, len(cum))
-    print("[4.3] Variância explicada (primeiros 20 PCs):")
-    for i in range(k_show):
-        print(f"  PC{i+1}: {var_ratio[i]:.4f}, acumulada: {cum[i]:.4f}")
-    print(f"[4.3] Usando {k} componentes principais.")
-    return F_proj, names, var_ratio
-
 def window_majority_label(data_window):
-    """
-    Retorna o rótulo (atividade) mais frequente na janela (coluna 11 do dataset).
-    """
     acts = data_window[:, 11].astype(int)
-    if acts.size == 0:
-        return -1
+    if acts.size == 0: return -1
     vals, counts = np.unique(acts, return_counts=True)
     return int(vals[np.argmax(counts)])
 
-
 def extract_features_and_labels_over_time(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=None, progress_every=1000):
-    """
-    Igual a extract_features_over_time mas também devolve um vetor de rótulos por janela (maioria).
-    Retorna (F, names, y).
-    """
     n = all_data.shape[0]
     win = int(round(window_sec * fs))
     step = int(round(step_sec * fs))
@@ -620,29 +414,107 @@ def extract_features_and_labels_over_time(all_data, fs=50.0, window_sec=2.0, ste
     labels = []
     names = None
     num_windows = 0
+    
     for i0, i1 in window_indices(n, win, step):
         dw = all_data[i0:i1, :]
         fvec, fnames = features_window(dw, fs)
         feature_list.append(fvec)
         labels.append(window_majority_label(dw))
         num_windows += 1
-        if names is None:
-            names = fnames
+        if names is None: names = fnames
+        
         if progress_every and (num_windows % progress_every == 0):
-            print(f"[4.5] Progresso (features+labels): {num_windows} janelas...")
+            print(f"[4.x] Progresso: {num_windows} janelas processadas...")
         if max_windows is not None and num_windows >= max_windows:
-            print(f"[4.5] Limite de janelas atingido ({max_windows}). A parar extração.")
+            print(f"[4.x] Limite de janelas atingido ({max_windows}).")
             break
-    if not feature_list:
-        return np.empty((0, 0)), [], np.array([])
+            
+    if not feature_list: return np.empty((0, 0)), [], np.array([])
     return np.vstack(feature_list), names, np.array(labels, dtype=int)
 
+# =======================
+# ASSUNTO 3: REDUÇÃO E SELEÇÃO
+
+def standardize_features(F):
+    mean = np.mean(F, axis=0)
+    std = np.std(F, axis=0, ddof=1)
+    std_safe = np.where(std == 0, 1.0, std)
+    Fz = (F - mean) / std_safe
+    return Fz, mean, std_safe
+
+def pca_fit(Fz):
+    N, D = Fz.shape
+    # CORREÇÃO: np.maximum(0, ...) para evitar NaN em sqrt de erros de float negativos
+    if N >= D:
+        C = (Fz.T @ Fz) / max(1, (N - 1))
+        evals, evecs = np.linalg.eigh(C)
+        order = np.argsort(evals)[::-1]
+        evals = evals[order]
+        evecs = evecs[:, order]
+        components = evecs.T
+        explained_var = evals
+        var_ratio = explained_var / np.sum(explained_var)
+        S = np.sqrt(np.maximum(0, explained_var) * max(1, (N - 1))) 
+        return components, S, var_ratio
+    else:
+        U, S, Vt = np.linalg.svd(Fz, full_matrices=False)
+        components = Vt
+        explained_var = (S ** 2) / max(1, (N - 1))
+        var_ratio = explained_var / np.sum(explained_var)
+        return components, S, var_ratio
+
+def pca_transform(Fz, components, n_components):
+    W = components[:n_components, :]
+    return Fz @ W.T
+
+def run_point_4_3(all_data, fs=50.0, max_windows=None):
+    print(f"[4.3] A extrair features para PCA...")
+    F, names, labels = extract_features_and_labels_over_time(all_data, fs=fs, max_windows=max_windows, progress_every=500)
+    
+    if F.size == 0: return None
+
+    Fz, mean, std = standardize_features(F)
+    components, S, var_ratio = pca_fit(Fz)
+    
+    cum = np.cumsum(var_ratio)
+    dims_75 = np.argmax(cum >= 0.75) + 1
+    
+    print("[4.4] Variância explicada (Top 5):")
+    for i in range(5):
+        print(f"  PC{i+1}: {var_ratio[i]:.4f}, acumulada: {cum[i]:.4f}")
+    print(f"[4.4] Dimensões para explicar 75%: {dims_75}")
+    
+    # Projeção
+    F_proj = pca_transform(Fz, components, n_components=2)
+    
+    return F_proj, labels, var_ratio
+
+def plot_pca_analise(var_ratio, F_proj, labels):
+    # 1. Scree Plot
+    cum_var = np.cumsum(var_ratio)
+    k_75 = np.argmax(cum_var >= 0.75) + 1
+    
+    fig1, ax1 = plt.subplots(figsize=(10, 5))
+    ax1.plot(range(1, len(cum_var)+1), cum_var, marker='o', linestyle='-', markersize=4)
+    ax1.axhline(y=0.75, color='r', linestyle='--', label='Limiar 75%')
+    ax1.axvline(x=k_75, color='g', linestyle='--', label=f'{k_75} Comps')
+    ax1.set_title('PCA Scree Plot')
+    ax1.legend()
+    ax1.grid(True)
+    if not ENABLE_PLOTS:
+        plt.savefig('pca_scree_plot.png')
+        plt.close(fig1)
+
+    # 2. Scatter 2D
+    fig2, ax2 = plt.subplots(figsize=(10, 8))
+    scatter = ax2.scatter(F_proj[:, 0], F_proj[:, 1], c=labels, cmap='jet', alpha=0.6, s=15)
+    ax2.set_title('Projeção PCA 2D (PC1 vs PC2)')
+    plt.colorbar(scatter, ax=ax2, label='Atividade')
+    if not ENABLE_PLOTS:
+        plt.savefig('pca_2d_scatter.png')
+        plt.close(fig2)
 
 def fisher_score(F, y):
-    """
-    Fisher Score por feature para problemas multi-classe.
-    Score(f) = sum_c n_c (mu_c - mu)^2 / sum_c n_c sigma_c^2. Retorna array [D].
-    """
     y = np.asarray(y)
     F = np.asarray(F)
     N, D = F.shape
@@ -650,227 +522,143 @@ def fisher_score(F, y):
     mu = np.mean(F, axis=0)
     classes = np.unique(y)
     for d in range(D):
-        num = 0.0
-        den = 0.0
+        num, den = 0.0, 0.0
         for c in classes:
             idx = (y == c)
-            if not np.any(idx):
-                continue
+            if not np.any(idx): continue
             Fc = F[idx, d]
-            nc = Fc.shape[0]
+            varc = np.var(Fc, ddof=0)
             muc = np.mean(Fc)
-            varc = np.var(Fc, ddof=1) if nc > 1 else 0.0
+            nc = Fc.shape[0]
             num += nc * (muc - mu[d]) ** 2
             den += nc * varc
         scores[d] = num / (den + 1e-12)
     return scores
 
-
-def relieff(F, y, n_neighbors=5, sample_size=1000, random_state=42):
-    """
-    ReliefF multi-classe simplificado.
-    - Normaliza features (z-score) antes de calcular distâncias L2.
-    - Amostra até sample_size instâncias aleatórias para eficiência.
-    Retorna importância por feature [D].
-    """
-    rng = np.random.default_rng(random_state)
+def relieff(F, y, n_neighbors=5, sample_size=500):
+    rng = np.random.default_rng()
     F = np.asarray(F)
     y = np.asarray(y)
     N, D = F.shape
-    # z-score
-    mu = np.mean(F, axis=0)
-    sd = np.std(F, axis=0, ddof=1)
-    sd[sd == 0] = 1.0
-    Z = (F - mu) / sd
-    # amostragem
+    # Standardize rápido
+    Fz = (F - np.mean(F, axis=0)) / (np.std(F, axis=0) + 1e-12)
+    
     m = min(sample_size, N)
     idx_samples = rng.choice(N, size=m, replace=False)
-    classes, class_counts = np.unique(y, return_counts=True)
-    p_class = {c: cnt / N for c, cnt in zip(classes, class_counts)}
+    classes = np.unique(y)
     W = np.zeros(D, dtype=float)
+    
     for i in idx_samples:
-        xi = Z[i]
+        xi = Fz[i]
         yi = y[i]
-        # distâncias a todos
-        diff = Z - xi  # (N, D)
-        dists = np.sqrt(np.sum(diff * diff, axis=1))
+        diff = Fz - xi
+        dists = np.sqrt(np.sum(diff**2, axis=1))
         dists[i] = np.inf
-        # hits (mesma classe)
-        hit_idx = np.where(y == yi)[0]
-        hit_idx = hit_idx[hit_idx != i]
-        if hit_idx.size > 0:
-            nn_hit = hit_idx[np.argsort(dists[hit_idx])[:min(n_neighbors, hit_idx.size)]]
-            W -= np.mean(np.abs(Z[nn_hit] - xi), axis=0) / m
-        # misses (outras classes) ponderadas por probabilidade de classe
+        
+        # Hit (mesma classe)
+        hit_mask = (y == yi)
+        hit_mask[i] = False
+        hit_idx = np.where(hit_mask)[0]
+        if len(hit_idx) > 0:
+            nn_hit = hit_idx[np.argsort(dists[hit_idx])[:n_neighbors]]
+            W -= np.mean(np.abs(Fz[nn_hit] - xi), axis=0) / m
+            
+        # Miss (outras classes)
         for cj in classes:
-            if cj == yi:
-                continue
+            if cj == yi: continue
             miss_idx = np.where(y == cj)[0]
-            if miss_idx.size == 0:
-                continue
-            wj = p_class[cj] / (1.0 - p_class[yi] + 1e-12)
-            nn_miss = miss_idx[np.argsort(dists[miss_idx])[:min(n_neighbors, miss_idx.size)]]
-            W += wj * np.mean(np.abs(Z[nn_miss] - xi), axis=0) / m
-    # valores maiores indicam maior relevância
+            if len(miss_idx) > 0:
+                nn_miss = miss_idx[np.argsort(dists[miss_idx])[:n_neighbors]]
+                prob = len(miss_idx) / N
+                W += prob * np.mean(np.abs(Fz[nn_miss] - xi), axis=0) / m
     return W
 
-
-def run_point_4_5(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=1500, top_k=20):
-    """
-    Extrai features+labels por janelas e calcula ranking por Fisher Score e ReliefF.
-    Imprime top_k nomes e scores.
-    """
-    print(f"[4.5] A extrair features+labels para ranking (max_windows={max_windows})...")
-    F, names, y = extract_features_and_labels_over_time(
-        all_data, fs=fs, window_sec=window_sec, step_sec=step_sec,
-        max_windows=max_windows, progress_every=200
-    )
-    if F.size == 0 or y.size == 0:
-        print("[4.5] Sem dados para ranking.")
-        return None
-    print(f"[4.5] Matriz: {F.shape[0]} janelas x {F.shape[1]} features.")
-    # Fisher
-    t0 = time.time()
+def run_point_4_5_6(all_data, fs=50.0, max_windows=None):
+    print(f"[4.5] A calcular Rankings (Fisher e ReliefF)...")
+    F, names, y = extract_features_and_labels_over_time(all_data, fs=fs, max_windows=max_windows, progress_every=0)
+    
     fisher = fisher_score(F, y)
-    t1 = time.time()
-    # ReliefF
-    relief = relieff(F, y, n_neighbors=5, sample_size=min(1000, F.shape[0]))
-    t2 = time.time()
-    print(f"[4.5] Fisher em {(t1 - t0):.3f}s; ReliefF em {(t2 - t1):.3f}s")
-    # Top-k
-    k = min(top_k, len(names))
-    top_fisher_idx = np.argsort(fisher)[::-1][:k]
-    top_relief_idx = np.argsort(relief)[::-1][:k]
-    print("Top Fisher:")
-    for r, j in enumerate(top_fisher_idx, 1):
-        print(f"  {r:2d}. {names[j]} = {fisher[j]:.4f}")
-    print("Top ReliefF:")
-    for r, j in enumerate(top_relief_idx, 1):
-        print(f"  {r:2d}. {names[j]} = {relief[j]:.4f}")
-    return {'fisher': fisher, 'relief': relief, 'names': names}
+    relief = relieff(F, y) # usando defaults simplificados
+    
+    top_k = 10
+    idx_fisher = np.argsort(fisher)[::-1][:top_k]
+    idx_relief = np.argsort(relief)[::-1][:top_k]
+    
+    print("\nTop 10 Fisher:")
+    for i in idx_fisher: print(f" - {names[i]} ({fisher[i]:.2f})")
+    
+    print("\nTop 10 ReliefF:")
+    for i in idx_relief: print(f" - {names[i]} ({relief[i]:.4f})")
+    
+    # Gráfico de Barras Comparativo (SIMPLIFICADO: SEM MATRIZ DE CORRELAÇÃO)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    y_pos = np.arange(top_k)
+    ax1.barh(y_pos, fisher[idx_fisher], align='center', color='skyblue')
+    ax1.set_yticks(y_pos)
+    ax1.set_yticklabels([names[i] for i in idx_fisher])
+    ax1.invert_yaxis()
+    ax1.set_title(f'Top {top_k} Features - Fisher Score')
+    
+    ax2.barh(y_pos, relief[idx_relief], align='center', color='lightgreen')
+    ax2.set_yticks(y_pos)
+    ax2.set_yticklabels([names[i] for i in idx_relief])
+    ax2.invert_yaxis()
+    ax2.set_title(f'Top {top_k} Features - ReliefF')
+    
+    plt.tight_layout()
+    if not ENABLE_PLOTS:
+        plt.savefig('feature_ranking_bars.png')
+        plt.close(fig)
 
-
-def run_point_4_6(all_data, fs=50.0, window_sec=2.0, step_sec=0.5,
-                  max_windows=1500, top_k=10, example_index=0):
-    """
-    4.6: Identifica as 10 melhores features por Fisher e ReliefF, compara, e
-    exemplifica como obter a compressão (seleção das colunas) para um instante.
-    """
-    print(f"[4.6] A extrair features+labels (max_windows={max_windows})...")
-    F, names, y = extract_features_and_labels_over_time(
-        all_data, fs=fs, window_sec=window_sec, step_sec=step_sec,
-        max_windows=max_windows, progress_every=200
-    )
-    if F.size == 0 or y.size == 0:
-        print("[4.6] Sem dados para ranking.")
-        return None
-    print(f"[4.6] Matriz: {F.shape[0]} x {F.shape[1]}.")
-    # Rankings
-    fisher = fisher_score(F, y)
-    relief = relieff(F, y, n_neighbors=5, sample_size=min(1000, F.shape[0]))
-    k = min(top_k, len(names))
-    fisher_idx = np.argsort(fisher)[::-1][:k]
-    relief_idx = np.argsort(relief)[::-1][:k]
-    print("Top 10 Fisher:")
-    for r, j in enumerate(fisher_idx, 1):
-        print(f"  {r:2d}. {names[j]} = {fisher[j]:.4f}")
-    print("Top 10 ReliefF:")
-    for r, j in enumerate(relief_idx, 1):
-        print(f"  {r:2d}. {names[j]} = {relief[j]:.4f}")
-    overlap = [names[j] for j in fisher_idx if j in set(relief_idx)]
-    print(f"Sobreposição (Fisher ∩ ReliefF): {len(overlap)} features")
-    for name in overlap:
-        print(f"  - {name}")
-    # 4.6.1: Como obter a compressão (seleção de features) e exemplo num instante
-    # Vetor comprimido segundo Fisher e ReliefF para a janela example_index
-    ex = max(0, min(example_index, F.shape[0]-1))
-    F_fisher = F[ex, fisher_idx]
-    F_relief = F[ex, relief_idx]
-    print(f"Exemplo (janela #{ex}): vetores comprimidos com top-{k} features:")
-    print(f"  Fisher: shape={F_fisher.shape}")
-    print(f"  ReliefF: shape={F_relief.shape}")
-    return {
-        'names': names,
-        'fisher_idx': fisher_idx,
-        'relief_idx': relief_idx,
-        'overlap_names': overlap,
-        'example_index': ex,
-        'example_fisher_vec': F_fisher,
-        'example_relief_vec': F_relief,
-    }
-
+# =======================
+# EXECUÇÃO PRINCIPAL
+# =======================
 if __name__ == "__main__":
-   
     
-    # Junta todos os participantes num único array
-    all_data = []
-    for pid in range(0, 15):
-        data_array = load_participantes(pid, base_path=r"C:\Users\migue\Desktop\ECAC\SEMANA 1\FORTH_TRACE_DATASET-master")
-        all_data.append(data_array)
-    all_data = np.vstack(all_data)
-
-    mod_acc = np.sqrt(data_array[:,1]**2 + data_array[:,2]**2 + data_array[:,3]**2)
-    mod_gyro = np.sqrt(data_array[:,4]**2 + data_array[:,5]**2 + data_array[:,6]**2)
-    mod_mag = np.sqrt(data_array[:,7]**2 + data_array[:,8]**2 + data_array[:,9]**2)
-    atividades = data_array[:,11]
-
-    # Análise de outliers por atividade (pulso direito)
-    densidade_outliers_por_atividade(all_data)
-
-    # Boxplots dos módulos por atividade
-    plot_modulos_boxplot(all_data)
-
-    # Plots dos outliers nos módulos para diferentes valores de k
-    for k in [3, 3.5, 4]:
-        fig = plt.figure(figsize=(18,5))
-        plt.subplot(1,3,1)
-        plot_outliers_modulo(mod_acc, atividades, 'Aceleração', k)
-        plt.subplot(1,3,2)
-        plot_outliers_modulo(mod_gyro, atividades, 'Giroscópio', k)
-        plt.subplot(1,3,3)
-        plot_outliers_modulo(mod_mag, atividades, 'Magnetómetro', k)
-        plt.tight_layout()
-        if ENABLE_PLOTS:
-            plt.show()
-        else:
-            plt.close(fig)
-
-    # Exemplo: comparar outliers do Z-score e do k-means em 3D
-    modulo_total = np.sqrt(mod_acc**2 + mod_gyro**2 + mod_mag**2)
-    outliers_zscore = identifica_outliers_zscore(modulo_total, k=3)
-    plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_zscore, 'Outliers pelo Z-score (k=3)')
-
-    for n_clusters in [2, 3, 4, 5]:
-        outliers_km, labels_km, centroids_km = outliers_kmeans(mod_acc, mod_gyro, mod_mag, n_clusters=n_clusters, frac_outlier=0.05)
-        plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_km, f'Outliers pelo k-means (clusters={n_clusters})')
-
-    # Exemplo: comparar outliers do Z-score e do k-means em 3D
-    # Calcula os módulos e atividades uma única vez
+    # 0. Carregar Dados
+    DATASET_BASE_PATH = r"FORTH_TRACE_DATASET-master"
+    print(f"A carregar dados...")
+    all_data_list = []
+    for pid in range(0, 15): # 1 a 15 (o range para em 16)
+        d = load_participantes(pid, base_path=DATASET_BASE_PATH)
+        if d.size > 0: all_data_list.append(d)
+    
+    if not all_data_list:
+        print("ERRO: Nenhum dado carregado. Verifica o caminho da pasta.")
+        exit()
+        
+    all_data = np.vstack(all_data_list)
     mod_acc, mod_gyro, mod_mag, atividades = calcula_modulos(all_data)
-
-    # Outliers pelo Z-score (k=3) usando o módulo total
-    modulo_total = np.sqrt(mod_acc**2 + mod_gyro**2 + mod_mag**2)
-    outliers_zscore = identifica_outliers_zscore(modulo_total, k=3)
-    plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_zscore, 'Outliers pelo Z-score (k=3)')
-
-    # Executa ponto 4.1
-    run_point_4_1(all_data)
-
-    # Executa ponto 4.3 (PCA) sobre as janelas/features extraídas
-    print("[main] A iniciar 4.3 (PCA)...")
-    F_proj, feat_names, var_ratio = run_point_4_3(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, n_components=8, max_windows=1500)
-    if F_proj.size:
-        print(f"[main] PCA concluído: projeção com shape {F_proj.shape}.")
-    else:
-        print("[main] PCA não correu por falta de janelas/frames.")
-
-    # Executa ponto 4.5 (Fisher Score e ReliefF)
-    print("[main] A iniciar 4.5 (Fisher e ReliefF)...")
-    _ = run_point_4_5(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=1500, top_k=20)
-
-    # Executa ponto 4.6 (Top-10 e compressão por seleção de features)
-    print("[main] A iniciar 4.6 (Top-10 Fisher vs ReliefF e compressão)...")
-    _ = run_point_4_6(all_data, fs=50.0, window_sec=2.0, step_sec=0.5, max_windows=1500, top_k=10, example_index=0)
-
     
+    print("\n=== BLOCO 1: OUTLIERS ===")
+    plot_modulos_boxplot(all_data)
+    densidade_outliers_por_atividade(all_data)
+    plot_densidade_outliers(densidade_outliers_por_atividade(all_data))
+    
+    # 3.4 e 3.5: Z-Scores e Comparativos (CUMPRINDO O ENUNCIADO)
+    # Gera gráficos para k=3, 3.5 e 4
+    for k_val in [3, 3.5, 4]:
+        print(f"Gerando plot Z-Score para k={k_val}...")
+        plot_outliers_modulo(mod_acc, atividades, 'Aceleração', k_val, f'outliers_zscore_acc_k{k_val}.png')
+    
+    plot_limites_outliers_comparativo(mod_acc, atividades, 'Aceleração', atividade_id=4)
+    
+    # 3.7: 3D Plot K-Means (Exemplo)
+    outliers_km = outliers_kmeans(mod_acc, mod_gyro, mod_mag, n_clusters=3)
+    plot_3d_outliers(mod_acc, mod_gyro, mod_mag, outliers_km, 'Outliers K-Means (3 Clusters)', 'outliers_kmeans_3d.png')
 
+    print("\n=== BLOCO 2: ESTATÍSTICA ===")
+    run_point_4_1(all_data)
+    # NOTA: O gráfico de Violino foi REMOVIDO por ser desnecessário dada a clareza dos testes estatísticos.
+
+    print("\n=== BLOCO 3: REDUÇÃO E SELEÇÃO ===")
+    # Usar max_windows para ser mais rápido nos testes
+    pca_res = run_point_4_3(all_data, fs=50.0, max_windows=2000)
+    if pca_res:
+        F_proj, labels, var_ratio = pca_res
+        plot_pca_analise(var_ratio, F_proj, labels)
+        
+    run_point_4_5_6(all_data, fs=50.0, max_windows=2000)
+    
+    print("\nFIM! Verifica os ficheiros PNG gerados na pasta.")

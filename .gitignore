@@ -1,2 +1,15 @@
-.vscode
-exemplo
+# --- Ambientes Virtuais e Cache (Lixo) ---
+.venv/
+__pycache__/
+.vscode/
+
+# --- Dados Pesados (O teu colega deve ter a pasta dele) ---
+FORTH_TRACE_DATASET-master/
+
+# --- Ficheiros Gerados Automaticamente (Pesados) ---
+datasets_partB.npz
+*.png
+
+# --- Documentação (O colega já deve ter) ---
+*.pdf
+*.docx
