@@ -11,24 +11,25 @@ from embeddings_extractor import load_model, resample_to_30hz_5s
 # --- CONFIGURAÇÕES GLOBAIS ---
 FS = 50.0   
 WINDOW_SEC = 5.0 
-STEP_SEC = 5.0   
-DATASET_BASE_PATH = r"FORTH_TRACE_DATASET-master"
+STEP_SEC = 2.5   # 50% Overlap
+# Usar caminho absoluto baseado na localização do script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+DATASET_BASE_PATH = os.path.join(script_dir, "FORTH_TRACE_DATASET-master")
 FILENAME_NPZ = "datasets_partB.npz"
 
-# Forçar CPU para evitar erros de compatibilidade com a RTX 5060
+# Forçar CPU (evitar incompatibilidade GPU)
 DEVICE = "cpu"
 print(f"--- A USAR DISPOSITIVO: {DEVICE.upper()} ---")
 
 def filtrar_atividades(data):
-    """ Mantém apenas atividades 1 a 7. """
+    """ Filtra dados para manter apenas as atividades 1 a 7. """
     atividades = data[:, 11]
     mask = (atividades >= 1) & (atividades <= 7)
     return data[mask]
 
 def processar_janelas(data_participante, embed_model):
     """
-    Processa os dados de UM participante.
-    Retorna listas de features, embeddings e labels.
+    Processa os dados de um participante: segmentação, extração de features e embeddings.
     """
     list_feats = []
     list_embeds = []
@@ -56,7 +57,7 @@ def processar_janelas(data_participante, embed_model):
         
         # Converter para Tensor PyTorch
         tensor_input = torch.from_numpy(acc_resampled).float().to(DEVICE)
-        tensor_input = tensor_input.unsqueeze(0).permute(0, 2, 1) # (1, 3, Time)
+        tensor_input = tensor_input.unsqueeze(0).permute(0, 2, 1) # (Batch, Channels, Time)
         
         with torch.no_grad():
             embedding = embed_model(tensor_input)
@@ -69,7 +70,7 @@ def processar_janelas(data_participante, embed_model):
     return list_feats, list_embeds, list_labels
 
 if __name__ == "__main__":
-    print("[Modelo] A carregar modelo HARNet5...")
+    print("[Modelo] Carregando modelo HARNet5...")
     embed_model = load_model()
     embed_model.to(DEVICE)
     embed_model.eval()
@@ -82,7 +83,7 @@ if __name__ == "__main__":
 
     print("1. A processar participantes (0 a 14)...")
     
-    # CORREÇÃO CRÍTICA: Range 0 a 15 (exclui o 15), para apanhar part0 até part14
+    # Processar range 0 a 14
     for pid in range(0, 15):
         print(f" -> Participante {pid}...", end="")
         

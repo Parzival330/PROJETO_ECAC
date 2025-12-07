@@ -7,15 +7,14 @@ from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDis
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
-from sklearn.ensemble import RandomForestClassifier
-from scipy.stats import ttest_rel, chi2_contingency
+from scipy.stats import ttest_rel
 import sys
 import os
 
 # Importar versão real do ReliefF e outras utils
 # Certifica-se que consegue importar do diretório atual
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mainActivity import relieff, calcula_modulos, features_window, load_participantes
+from mainActivity import relieff, calcula_modulos, features_window
 
 FILENAME_NPZ = "datasets_partB.npz"
 
@@ -69,24 +68,6 @@ def verify_balance(y):
         print(f"\n [CONCLUSÃO] O dataset NÃO é balanceado (CV={cv:.2f} > 0.2).")
         print("  -> Recomendação: Aplicar SMOTE ou Undersampling.")
     print("="*50 + "\n")
-
-    # --- Plot Balanceamento ---
-    plt.figure(figsize=(10, 6))
-    plt.bar(unique, counts, color='skyblue', edgecolor='black', alpha=0.7)
-    plt.xticks(unique)
-    plt.xlabel('Atividade')
-    plt.ylabel('Contagem de Amostras')
-    plt.title('Distribuição das Atividades (Balanceamento)')
-    plt.grid(axis='y', linestyle='--', alpha=0.5)
-    
-    # Adicionar labels nas barras
-    for i, count in enumerate(counts):
-        plt.text(unique[i], count + (max(counts)*0.01), str(count), ha='center')
-        
-    plt.tight_layout()
-    plt.savefig("balance_distribution.png")
-    print(" -> Gráfico guardado: 'balance_distribution.png'")
-    plt.close()
 
 def generate_synthetic_samples(X_class, k_samples):
     """
@@ -192,43 +173,21 @@ def plot_smote_specific(X, y, subjects):
 
 # --- Tuning e Avaliação ---
 
-def tune_k(X_train, y_train, X_val, y_val, k_range=range(1, 21), plot_title=None):
-    """ Encontra o best K e gera gráfico de validação se plot_title for fornecido. """
+def tune_k(X_train, y_train, X_val, y_val, k_range=range(1, 21)):
+    """ Encontra o melhor K para o KNN usando os conjuntos de Treino e Validação. """
     best_k = 1
     best_acc = -1
     
     # Se os sets forem muito grandes, podemos limitar o treino do tuning
     # Mas aqui vamos usar tudo
     
-    
-    accuracies = []
-    
     for k in k_range:
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_train, y_train) # Treina no Train
         acc = knn.score(X_val, y_val) # Avalia no Val
-        accuracies.append(acc)
-        
         if acc > best_acc:
             best_acc = acc
             best_k = k
-            
-    # --- Plot Tuning Curve ---
-    if plot_title:
-        plt.figure(figsize=(8, 5))
-        plt.plot(k_range, accuracies, marker='o', linestyle='-', color='b', label='Val Accuracy')
-        plt.axvline(best_k, color='r', linestyle='--', label=f'Best K={best_k}')
-        plt.title(f"K-NN Tuning: {plot_title}")
-        plt.xlabel("K (Neighbors)")
-        plt.ylabel("Validation Accuracy")
-        plt.xticks(k_range)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        safe_name = plot_title.replace(" ", "_").replace("/", "-")
-        plt.tight_layout()
-        plt.savefig(f"knn_tuning_curve_{safe_name}.png")
-        plt.close()
             
     return best_k, best_acc
 
@@ -288,55 +247,6 @@ def deployment_pipeline(raw_data_256_9, model, scaler, pca_model=None, selected_
     # 4. Classificação
     pred = model.predict(f_final)
     return pred[0]
-
-    return pred[0]
-
-def mcnemar_test(y_true, y_pred1, y_pred2, model1_name="Model 1", model2_name="Model 2"):
-    """
-    Executa o Teste de McNemar para comparar dois classificadores.
-    H0: Os dois modelos têm a mesma taxa de erro.
-    """
-    print(f"\n[McNemar] Comparando {model1_name} vs {model2_name}...")
-    
-    # Construir tabela de contingência
-    #          | M2 Certo | M2 Errado
-    # M1 Certo |    a     |    b
-    # M1 Errado|    c     |    d
-    
-    correct1 = (y_pred1 == y_true)
-    correct2 = (y_pred2 == y_true)
-    
-    a = np.sum(correct1 & correct2)
-    b = np.sum(correct1 & ~correct2)
-    c = np.sum(~correct1 & correct2)
-    d = np.sum(~correct1 & ~correct2)
-    
-    table = [[a, b], [c, d]]
-    
-    # Calcular statistic (com correção de continuidade se b+c > 0)
-    if (b + c) > 0:
-        # Chi2 Statistic = (|b-c| - 1)^2 / (b+c)
-        chi2_stat = (abs(b - c) - 1)**2 / (b + c)
-        p_val = 1 - chi2_contingency(table)[1] # Aproximação chi2
-        
-        # Nota: chi2_contingency do scipy faz teste de independência (tabela toda),
-        # mas para McNemar usamos a fórmula específica ou a distribuição binomial exacta.
-        # Vamos usar a fórmula clássica aproximada Chi-Square (df=1):
-        from scipy.stats import chi2
-        p_val_mc = 1 - chi2.cdf(chi2_stat, 1)
-        
-        print(f"  Contingency: Yes/Yes={a}, Yes/No={b}, No/Yes={c}, No/No={d}")
-        print(f"  Chi2 Stat: {chi2_stat:.4f}, P-Value: {p_val_mc:.4e}")
-        
-        if p_val_mc < 0.05:
-            print("  -> Diferença Significativa (Rejeita H0)")
-        else:
-            print("  -> Diferença NÃO Significativa (Aceita H0)")
-            
-        return p_val_mc
-    else:
-        print("  -> Modelos idênticos (b+c=0).")
-        return 1.0
 
 
 if __name__ == "__main__":
@@ -430,24 +340,7 @@ if __name__ == "__main__":
                 selected_idxs = None
                 
                 if method == "PCA":
-                    # 1. Fit PCA completo para ver variância acumulada
-                    pca_full = PCA().fit(X_train_s)
-                    cum_var = np.cumsum(pca_full.explained_variance_ratio_)
-                    
-                    # Plot Cumulative Variance
-                    plt.figure(figsize=(8, 5))
-                    plt.plot(range(1, len(cum_var) + 1), cum_var, marker='.', label='Variância Acumulada')
-                    plt.axhline(y=0.90, color='r', linestyle='--', label='90% Threshold')
-                    plt.xlabel('Número de Componentes')
-                    plt.ylabel('Variância Explicada Acumulada')
-                    plt.title(f'PCA Analysis ({strategy})')
-                    plt.grid(True, alpha=0.3)
-                    plt.legend()
-                    plt.tight_layout()
-                    plt.savefig(f"pca_cumulative_variance_{strategy}.png")
-                    plt.close()
-
-                    # 2. Aplica o PCA com threshold
+                    # Manter 90% variância
                     pca = PCA(n_components=0.90)
                     X_train_final = pca.fit_transform(X_train_s)
                     X_val_final   = pca.transform(X_val_s)
@@ -469,8 +362,7 @@ if __name__ == "__main__":
                 X_train_bal, y_train_bal = smote.fit_resample(X_train_final, y_train_full)
                 
                 # 4. Hyperparameter Tuning
-                tune_title = f"{strategy}_{data_name}_{method}"
-                best_k, best_val_score = tune_k(X_train_bal, y_train_bal, X_val_final, y_val, plot_title=tune_title)
+                best_k, best_val_score = tune_k(X_train_bal, y_train_bal, X_val_final, y_val)
                 print(f"      Melhor K: {best_k} (Val Acc: {best_val_score:.3f})")
                 
                 # 5. Retrain com Treino + Validação (Usando o melhor K)
@@ -485,14 +377,13 @@ if __name__ == "__main__":
                 final_model.fit(X_tv_bal, y_tv_bal)
                 
                 
-                
                 # 6. Avaliação no Test set
                 y_pred = final_model.predict(X_test_final)
                 metrics = calculate_metrics(y_test, y_pred)
                 
-                print(f"      [KNN] {metrics}")
+                print(f"      {metrics}")
                 
-                # Guardar resultados KNN
+                # Guardar resultados
                 results_store[model_name] = {
                     "y_true": y_test,
                     "y_pred": y_pred,
@@ -500,31 +391,8 @@ if __name__ == "__main__":
                     "model": final_model,
                     "scaler": scaler,
                     "pca": pca_model,
-                    "relief_idx": selected_idxs,
-                    "type": "KNN"
+                    "relief_idx": selected_idxs
                 }
-                
-                # --- BONUS: RANDOM FOREST (Tarefa 7.1) ---
-                print(f"      [RF] Treinando Random Forest (n=100)...")
-                rf = RandomForestClassifier(n_estimators=100, random_state=42)
-                rf.fit(X_tv_bal, y_tv_bal)
-                yp_rf = rf.predict(X_test_final)
-                metrics_rf = calculate_metrics(y_test, yp_rf)
-                print(f"      [RF]  {metrics_rf}")
-                
-                results_store[model_name + "_RF"] = {
-                    "y_true": y_test,
-                    "y_pred": yp_rf,
-                    "metrics": metrics_rf,
-                    "model": rf,
-                    "scaler": scaler,
-                    "pca": pca_model,
-                    "relief_idx": selected_idxs,
-                    "type": "RF"
-                }
-
-                
-                # Guardar resultados
                 
                 # Matriz Confusão se for Features_All (Exemplo)
                 if method == "All" and data_name == "Features":
@@ -535,76 +403,48 @@ if __name__ == "__main__":
                     plt.savefig(f"cm_{model_name}.png")
                     plt.close()
 
-    print("\n=== COMPARAÇÃO ESTATÍSTICA (McNemar) ===")
+    print("\n=== COMPARAÇÃO ESTATÍSTICA ===")
+    # Exemplo: Comparar Between_Features_All vs Between_Embeddings_All
     
-    # 1. Comparar KNN vs RF para a melhor combinação (ex: Between_Features_ReliefF)
-    model_base = "Between_Features_ReliefF"
-    if model_base in results_store and (model_base + "_RF") in results_store:
-        knn_res = results_store[model_base]
-        rf_res  = results_store[model_base + "_RF"]
-        mcnemar_test(knn_res["y_true"], knn_res["y_pred"], rf_res["y_pred"], 
-                    model1_name="KNN (ReliefF)", model2_name="RF (ReliefF)")
-
-    # 2. Comparar Features vs Embeddings (usando o melhor modelo, ex: RF)
-    name_a = "Between_Features_All_RF"
-    name_b = "Between_Embeddings_All_RF"
+    name_a = "Between_Features_All"
+    name_b = "Between_Embeddings_All" # Se existir no loop
     
     if name_a in results_store and name_b in results_store:
-        res_a = results_store[name_a]
-        res_b = results_store[name_b]
-        mcnemar_test(res_a["y_true"], res_a["y_pred"], res_b["y_pred"],
-                    model1_name="Features (RF)", model2_name="Embeddings (RF)")
+        acc_a = results_store[name_a]["metrics"]["Accuracy"]
+        acc_b = results_store[name_b]["metrics"]["Accuracy"]
+        
+        # Teste T emparelhado nos vetores de acerto (aproximação comum)
+        hits_a = (results_store[name_a]["y_pred"] == results_store[name_a]["y_true"]).astype(int)
+        hits_b = (results_store[name_b]["y_pred"] == results_store[name_b]["y_true"]).astype(int)
+        
+        # Garantir mesmo tamanho (devem ter, pois é o mesmo Test set para o mesmo Strategy)
+        if len(hits_a) == len(hits_b):
+            t, p = ttest_rel(hits_a, hits_b)
+            print(f"Comparison {name_a} ({acc_a:.1%}) vs {name_b} ({acc_b:.1%})")
+            print(f"T-Stat: {t:.4f}, P-Value: {p:.4e}")
+            if p < 0.05: print(" Diferença Significativa!")
+            else: print(" Diferença NÃO Significativa.")
     
     # --- Simulação de Deployment ---
-    print("\n=== DEPLOYMENT TEST (Simulação com DADOS REAIS) ===")
-    
-    # Usar 'Between_Features_ReliefF' como exemplo (ou RF se tivermos)
-    # Vamos usar o RF se existir
-    model_key = "Between_Features_ReliefF_RF"
-    if model_key not in results_store:
-        model_key = "Between_Features_ReliefF"
-
+    print("\n=== DEPLOYMENT TEST (Simulação) ===")
+    # Usar 'Between_Features_ReliefF' como exemplo de pipeline completo (se existir)
+    model_key = "Between_Features_ReliefF"
     if model_key in results_store:
         pkg = results_store[model_key]
-        print(f"Testando deployment com modelo: {model_key} ({pkg['type']})")
+        print(f"Testando deployment com modelo: {model_key}")
         
-        # 1. Carregar 5 segundos reais do Participante 1
-        print("  -> Carregando dados reais do Participante 1...")
-        # Assume que o script está na pasta do projeto e FORTH... está lá
-        p1_data = load_participantes(1, base_path="FORTH_TRACE_DATASET-master")
+        # Simular input raw (256 samples, 9 eixos)
+        # Vamos pegar num segmento real do dataset original para validar
+        # Precisamos de carregar dados Raw. Como não temos aqui fácil, vamos gerar ruído.
+        fake_input = np.random.randn(256, 9)
         
-        if p1_data.size > 256:
-            # Pegar num segmento válido (ex: meio do registo)
-            # Precisamos de garantir que é uma atividade válida (1-7) para o teste fazer sentido
-            # Coluna 11 é atividade
-            activities = p1_data[:, 11]
-            valid_mask = (activities >= 1) & (activities <= 7)
-            valid_indices = np.where(valid_mask)[0]
-            
-            if len(valid_indices) > 260:
-                start_idx = valid_indices[100] # Pega um ponto arbitratrio válido
-                real_segment = p1_data[start_idx : start_idx + 256, 1:10] # Colunas 1-9 (Acc, Gyro, Mag)
-                
-                true_activity = p1_data[start_idx, 11]
-                print(f"  -> Segmento extraído (Atividade Real: {int(true_activity)})")
-                
-                pred = deployment_pipeline(
-                    real_segment, 
-                    pkg["model"], 
-                    pkg["scaler"], 
-                    pca_model=pkg["pca"], 
-                    selected_indices=pkg["relief_idx"]
-                )
-                print(f"  -> Predição do Modelo: Atividade {int(pred)}")
-                
-                if int(pred) == int(true_activity):
-                    print("  [SUCESSO] O sistema classificou corretamente o segmento real!")
-                else:
-                    print("  [FALHA] Classificação incorreta.")
-            else:
-                print("  [Aviso] Não encontrou dados suficientes de atividades 1-7 no P1.")
-        else:
-             print("  [Erro] Não foi possível carregar dados do P1.")
-
+        pred = deployment_pipeline(
+            fake_input, 
+            pkg["model"], 
+            pkg["scaler"], 
+            pca_model=pkg["pca"], 
+            selected_indices=pkg["relief_idx"]
+        )
+        print(f"Predição para input aleatório: Atividade {pred}")
     else:
         print("Modelo para deployment não encontrado nos resultados.")
